@@ -1,0 +1,17 @@
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Wrangler / Cloudflare build artifacts
+.wrangler/
+node_modules/
+.dev.vars
+
+# Any local secrets the user might accidentally drop here
+*.secret
+*.token

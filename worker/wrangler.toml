@@ -1,0 +1,15 @@
+name = "snag-share"
+main = "worker.js"
+compatibility_date = "2024-11-01"
+
+# Allow uploads up to ~25 MB. Snagit PNGs are typically well under this.
+# (Workers' request body limit is higher on paid plans; free is fine for screenshots.)
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "snag-share"
+
+# Optional: if you map a custom domain or route to this Worker, set it here
+# so upload responses return that pretty URL instead of *.workers.dev.
+# [vars]
+# PUBLIC_BASE_URL = "https://snag.example.com"
