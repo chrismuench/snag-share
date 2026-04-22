@@ -47,45 +47,74 @@ If you want URLs like `https://snag.example.com/abc123.png` instead of `*.worker
 1. In the Worker's Cloudflare dashboard, go to **Settings → Domains & Routes → Add → Custom Domain** and point a subdomain at it.
 2. Uncomment the `[vars]` / `PUBLIC_BASE_URL` lines in `worker/wrangler.toml`, set it to that domain, and redeploy with `npx wrangler deploy`.
 
-## 2. Configure the client script
-
-Open the client script for your OS and replace the two placeholders at the top (endpoint URL and upload token). If you'd rather not hardcode the token, set them as environment variables instead:
-
-**macOS** (add to `~/.zshenv`):
-
-```sh
-export SNAG_SHARE_ENDPOINT="https://snag-share.<your-subdomain>.workers.dev"
-export SNAG_SHARE_TOKEN="<the token you generated above>"
-```
-
-**Windows** (PowerShell, one-time):
-
-```powershell
-[Environment]::SetEnvironmentVariable('SNAG_SHARE_ENDPOINT', 'https://snag-share.<your-subdomain>.workers.dev', 'User')
-[Environment]::SetEnvironmentVariable('SNAG_SHARE_TOKEN', '<the token you generated above>', 'User')
-```
-
-Test it from a terminal with any PNG file:
-
-```sh
-# macOS
-./macos/snagit-upload.command ~/Desktop/test.png
-# Windows
-windows\snagit-upload.bat  C:\path\to\test.png
-```
-
-You should see a notification, and the URL should be on your clipboard.
-
-## 3. Point Snagit at the script
+## 2. Configure the client
 
 ### macOS
 
-1. Snagit menu → **Preferences → Share → ➕ (add share) → Program**.
-2. For **Application**, pick `macos/snagit-upload.command`.
-3. For **Arguments**, choose/pass the file path (Snagit's UI calls this *Snagit File Path* or similar — leave it at the default "pass the captured file").
-4. Save. Name the share "Claude URL" or whatever you prefer.
+Run the one-time setup script. It prompts for the Worker URL and upload token, then writes them to `~/.config/snag-share/config` with `chmod 600` permissions:
 
-After a capture, click Share → Claude URL. The URL lands on your clipboard.
+```bash
+./macos/setup.sh
+```
+
+Paste the token from your password manager at the hidden prompt. **Paste it exactly once** — the prompt hides the input, so Cmd-V twice silently doubles it and you'll get 401s later.
+
+Verify end-to-end from the terminal:
+
+```bash
+screencapture -x /tmp/test.png
+./macos/snagit-upload.command /tmp/test.png
+# → notification appears, URL is on your clipboard
+pbpaste    # to see the URL
+```
+
+### Windows
+
+Run the one-time setup script in PowerShell. Same shape as macOS — it prompts for the Worker URL and upload token, writes them to `%USERPROFILE%\.config\snag-share\config`, and tightens the ACL to your user account:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\windows\setup.ps1
+```
+
+Paste the token from your password manager at the hidden prompt. **Paste it exactly once** — the prompt hides input, so Ctrl-V twice silently doubles the token.
+
+Test with any PNG:
+
+```cmd
+windows\snagit-upload.bat C:\path\to\test.png
+```
+
+You should see a toast notification and have the URL on your clipboard.
+
+If you rotate the token later, re-run the setup script — it remembers the endpoint and just prompts for a new token.
+
+## 3. Point Snagit at the uploader
+
+### macOS
+
+Snagit's "Program" share destination on macOS only accepts `.app` bundles — not shell scripts. Build a minimal Automator app that wraps the shell uploader:
+
+```bash
+./macos/build-app.sh
+```
+
+This produces `macos/Snag Share.app` by copying Apple's signed Automator Application Stub and dropping a workflow XML inside that runs `macos/snagit-upload.command` with the captured file. Because the launcher binary is signed by Apple, Gatekeeper doesn't prompt.
+
+Smoke test the app before wiring it into Snagit:
+
+```bash
+open -a "$(pwd)/macos/Snag Share.app" /tmp/test.png
+# → same notification + URL on clipboard as the .command test above
+```
+
+Then in Snagit:
+
+1. **Snagit menu → Preferences → Share** → click **+** → choose **Program**.
+2. In the app picker, select `macos/Snag Share.app`.
+3. Name the share "Claude URL" (or whatever you like). Leave arguments at the default — Snagit passes the captured file automatically.
+4. Save.
+
+After a capture, click **Share → Claude URL**. The URL lands on your clipboard, no prompts.
 
 ### Windows
 
@@ -103,14 +132,19 @@ After any Snagit capture → share to the new destination → paste the URL into
 
 ```
 worker/
-  worker.js          - the Cloudflare Worker (upload + serve)
-  wrangler.toml      - Worker/R2 config
+  worker.js            - the Cloudflare Worker (upload + serve)
+  wrangler.toml        - Worker/R2 config
 macos/
-  snagit-upload.command
+  setup.sh             - one-time config: writes ~/.config/snag-share/config
+  snagit-upload.command - bash uploader called by the .app
+  build-app.sh         - builds macos/Snag Share.app (Automator bundle)
 windows/
-  snagit-upload.ps1  - actual uploader
-  snagit-upload.bat  - wrapper Snagit invokes
+  setup.ps1            - one-time config: writes %USERPROFILE%\.config\snag-share\config
+  snagit-upload.ps1    - actual uploader
+  snagit-upload.bat    - wrapper Snagit invokes
 ```
+
+Built artifacts (`macos/Snag Share.app/`) are gitignored — regenerate with `./macos/build-app.sh`.
 
 ## Security notes
 
@@ -121,10 +155,16 @@ windows/
 
 ## Troubleshooting
 
-- **`401 unauthorized`** — token in the client doesn't match the Worker secret. Re-run `wrangler secret put UPLOAD_TOKEN` and update the client.
-- **Notification says "upload failed"** — run the client script manually from a terminal on a test PNG; the error message will be more visible.
+- **`401 unauthorized`** — the client token doesn't match the Worker secret. Most common cause: paste-twice at the hidden token prompt silently doubled the token. Check length:
+  - macOS: `source ~/.config/snag-share/config && echo ${#SNAG_SHARE_TOKEN}`
+  - Windows (PowerShell): `Select-String SNAG_SHARE_TOKEN= $env:USERPROFILE\.config\snag-share\config | %{ $_.Line.Substring(18).Length }`
+
+  Should print **64**. If it prints 128, re-run the setup script and paste once.
+- **Notification says "upload failed"** — run `./macos/snagit-upload.command /tmp/test.png` directly from a terminal; the error is printed there.
 - **URL returns 404** — either the 7-day lifecycle ate it, or the slug was copied wrong. Upload a fresh one.
-- **Snagit on Windows opens a console window briefly** — that's the `.bat` wrapper running PowerShell. Harmless. To hide it, you can wrap further in a VBScript or use `conhost.exe` launch flags, but it's usually not worth the hassle.
+- **Snagit's app picker won't let me select the `.app`** — you haven't run `./macos/build-app.sh` yet, or Snagit is looking at a stale path. The `.app` must exist at `macos/Snag Share.app`.
+- **macOS asks "Press Run or Quit to run this script"** — you're pointing Snagit at an older AppleScript-based build, or the `.app` wasn't regenerated via the current `build-app.sh`. Rebuild: `rm -rf "macos/Snag Share.app" && ./macos/build-app.sh`.
+- **Snagit on Windows opens a console window briefly** — that's the `.bat` wrapper running PowerShell. Harmless.
 
 ## License
 

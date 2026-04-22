@@ -11,9 +11,24 @@ param(
 )
 
 # --- CONFIG -----------------------------------------------------------------
-# Prefer environment variables; fall back to the literals below.
-$Endpoint = if ($env:SNAG_SHARE_ENDPOINT) { $env:SNAG_SHARE_ENDPOINT } else { 'https://snag-share.YOURSUBDOMAIN.workers.dev' }
-$Token    = if ($env:SNAG_SHARE_TOKEN)    { $env:SNAG_SHARE_TOKEN }    else { 'REPLACE_WITH_YOUR_UPLOAD_TOKEN' }
+# Config lives in %USERPROFILE%\.config\snag-share\config (created by
+# windows\setup.ps1). It's a KEY=VALUE file parsed here. Env vars win if
+# they're already set, which is handy for testing from a shell.
+$ConfigPath = Join-Path $env:USERPROFILE '.config\snag-share\config'
+if (Test-Path -LiteralPath $ConfigPath) {
+    Get-Content -LiteralPath $ConfigPath | ForEach-Object {
+        if ($_ -match '^\s*(SNAG_SHARE_ENDPOINT|SNAG_SHARE_TOKEN)=(.*)$') {
+            $name  = $Matches[1]
+            $value = $Matches[2]
+            if (-not [Environment]::GetEnvironmentVariable($name, 'Process')) {
+                [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+            }
+        }
+    }
+}
+
+$Endpoint = $env:SNAG_SHARE_ENDPOINT
+$Token    = $env:SNAG_SHARE_TOKEN
 # ---------------------------------------------------------------------------
 
 function Show-Toast {
@@ -34,6 +49,11 @@ function Show-Toast {
 
 if (-not (Test-Path -LiteralPath $File -PathType Leaf)) {
     Show-Toast -Title 'Snag Share' -Message "File not found: $File"
+    exit 1
+}
+
+if (-not $Endpoint -or -not $Token) {
+    Show-Toast -Title 'Snag Share' -Message 'Config missing — run windows\setup.ps1'
     exit 1
 }
 
