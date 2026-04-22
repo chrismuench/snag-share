@@ -125,3 +125,7 @@ windows/
 - **Notification says "upload failed"** — run the client script manually from a terminal on a test PNG; the error message will be more visible.
 - **URL returns 404** — either the 7-day lifecycle ate it, or the slug was copied wrong. Upload a fresh one.
 - **Snagit on Windows opens a console window briefly** — that's the `.bat` wrapper running PowerShell. Harmless. To hide it, you can wrap further in a VBScript or use `conhost.exe` launch flags, but it's usually not worth the hassle.
+
+## License
+
+Released under the [MIT License](LICENSE). Use it, fork it, ship it — no warranty.
