@@ -6,10 +6,21 @@
 set -euo pipefail
 
 # --- CONFIG ---------------------------------------------------------------
-# Either edit these two lines, or set them as environment variables in
-# ~/.zshenv so you don't keep secrets inside the script itself.
-: "${SNAG_SHARE_ENDPOINT:=https://snag-share.YOURSUBDOMAIN.workers.dev}"
-: "${SNAG_SHARE_TOKEN:=REPLACE_WITH_YOUR_UPLOAD_TOKEN}"
+# Config lives in ~/.config/snag-share/config (created by macos/setup.sh).
+# It's a simple shell-sourceable file:
+#
+#     SNAG_SHARE_ENDPOINT=https://...
+#     SNAG_SHARE_TOKEN=...
+#
+# Env vars (if already set) win over the config file, which is handy for
+# testing from a terminal without touching the file.
+CONFIG_FILE="${SNAG_SHARE_CONFIG:-$HOME/.config/snag-share/config}"
+if [[ -f "$CONFIG_FILE" && ( -z "${SNAG_SHARE_ENDPOINT:-}" || -z "${SNAG_SHARE_TOKEN:-}" ) ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$CONFIG_FILE"
+  set +a
+fi
 # --------------------------------------------------------------------------
 
 notify() {
@@ -20,6 +31,11 @@ notify() {
 file="${1:-}"
 if [[ -z "$file" || ! -f "$file" ]]; then
   notify "Snag Share" "No file passed to uploader"
+  exit 1
+fi
+
+if [[ -z "${SNAG_SHARE_ENDPOINT:-}" || -z "${SNAG_SHARE_TOKEN:-}" ]]; then
+  notify "Snag Share" "Config missing — run macos/setup.sh"
   exit 1
 fi
 
